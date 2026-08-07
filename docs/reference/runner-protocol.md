@@ -70,15 +70,6 @@ checkout. `tools/ci/packer_var_file_args.sh` emits ordered Packer arguments:
 The order is preserved, so later var files can intentionally override earlier
 ones. Absolute paths and `..` traversal segments are rejected.
 
-## Build Credentials
-
-For `build: true`, the caller passes AWS credentials as reusable-workflow
-secrets: `aws_role_to_assume` (an IAM role ARN trusted for GitHub OIDC) and
-`aws_region`. The workflow assumes the role with
-`aws-actions/configure-aws-credentials` before running `packer build`. No static
-access keys cross the workflow boundary. `deploy_user_name` defaults to
-`ec2-user` when not supplied.
-
 ## Release Evidence
 
 Runner repositories call
@@ -105,15 +96,17 @@ The reusable build exposes `build_status`:
 ```yaml
 jobs:
   validate-runner-inventory:
-    uses: nwarila-platform/aws-packer-framework/.github/workflows/reusable-packer-framework-build.yaml@0123456789abcdef0123456789abcdef01234567
+    uses: NWarila/packer-framework-template/.github/workflows/reusable-packer-framework-build.yaml@0123456789abcdef0123456789abcdef01234567
     with:
       framework_ref: 0123456789abcdef0123456789abcdef01234567
-      input_repo: nwarila-platform/secure-rhel8-ami
+      input_repo: NWarila/packer-runner-template
       input_ref: fedcba9876543210fedcba9876543210fedcba98
       overlay_paths: |
         packer/repos/public/=>packer/repos/public/
+        packer/fixtures/runtime/=>packer/fixtures/runtime/
       var_file: |
-        packer/repos/public/rhel-8.pkrvars.hcl
+        packer/repos/public/base.pkrvars.hcl
+        packer/repos/public/prod.pkrvars.hcl
       build: false
       upload_artifacts: false
 ```

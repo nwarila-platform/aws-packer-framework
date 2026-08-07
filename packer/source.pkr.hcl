@@ -134,3 +134,126 @@ source "amazon-ebs" "packer_image" {
   }
 
 }
+
+# Surrogate-volume variant of the same contract. The build instance boots from the source AMI,
+# a blank volume (var.surrogate) is attached alongside it, consumer provisioning partitions
+# that volume and copies the configured OS in, and the AMI is registered from the surrogate —
+# the path for partition layouts the source AMI cannot provide (e.g. STIG-mandated separate
+# filesystems). Built only when explicitly selected: packer build -only=amazon-ebssurrogate.packer_image
+source "amazon-ebssurrogate" "packer_image" {
+
+  # AWS Configuration
+  region  = local.packer_image.region
+  profile = var.aws_profile
+
+  dynamic "assume_role" {
+    for_each = var.aws_assume_role == null ? [] : [1]
+
+    content {
+      role_arn     = var.aws_assume_role["role_arn"]
+      session_name = var.aws_assume_role["session_name"]
+      external_id  = var.aws_assume_role["external_id"]
+    }
+  }
+
+  # Communicator Configuration (SSH only; surrogate imaging requires a Linux build instance)
+  communicator  = "ssh"
+  ssh_interface = local.packer_image.ssh_interface
+  ssh_port      = 22
+  ssh_timeout   = local.packer_image.ssh_timeout
+  ssh_username  = var.deploy_user_name
+
+  # General Settings
+  ami_name        = local.packer_image.ami_name
+  ami_description = local.packer_image.ami_description
+  ami_regions     = local.packer_image.ami_regions
+  ami_users       = local.packer_image.ami_users
+  ami_org_arns    = local.packer_image.ami_org_arns
+  tags            = local.packer_image.tags
+  run_tags        = local.packer_image.run_tags
+  snapshot_tags   = local.packer_image.snapshot_tags
+
+  # Build Instance
+  instance_type        = local.packer_image.instance_type
+  iam_instance_profile = local.packer_image.iam_instance_profile
+  ebs_optimized        = local.packer_image.ebs_optimized
+  user_data            = local.user_data
+
+  # AMI Settings (RegisterImage flow)
+  ami_virtualization_type = "hvm"
+  ena_support             = local.packer_image.ena_support
+  sriov_support           = local.packer_image.sriov_support
+  imds_support            = local.packer_image.imds_support
+  force_deregister        = local.packer_image.force_deregister
+  force_delete_snapshot   = local.packer_image.force_delete_snapshot
+
+  # Source AMI
+  source_ami = local.source_ami.ami_id
+
+  dynamic "source_ami_filter" {
+    for_each = local.source_ami.ami_id == null ? [1] : []
+
+    content {
+      filters     = local.source_ami.filters
+      owners      = local.source_ami.owners
+      most_recent = local.source_ami.most_recent
+    }
+  }
+
+  # Network Placement
+  vpc_id                                = local.vpc_config.vpc_id
+  subnet_id                             = local.vpc_config.subnet_id
+  security_group_ids                    = local.vpc_config.security_group_ids
+  associate_public_ip_address           = local.vpc_config.associate_public_ip_address
+  temporary_security_group_source_cidrs = local.vpc_config.temporary_security_group_source_cidrs
+
+  # Instance Metadata Service (IMDSv2 enforced by normalized defaults)
+  metadata_options {
+    http_endpoint               = local.metadata_options.http_endpoint
+    http_tokens                 = local.metadata_options.http_tokens
+    http_put_response_hop_limit = local.metadata_options.http_put_response_hop_limit
+    instance_metadata_tags      = local.metadata_options.instance_metadata_tags
+  }
+
+  # Launch devices: the consumer's mappings (first entry overrides the source-AMI root on the
+  # build instance) plus the blank surrogate volume the image is assembled onto.
+  dynamic "launch_block_device_mappings" {
+    for_each = concat(
+      local.launch_block_device_mappings,
+      [
+        {
+          device_name           = local.surrogate.device_name
+          volume_size           = local.surrogate.volume_size
+          volume_type           = local.surrogate.volume_type
+          iops                  = local.surrogate.iops
+          throughput            = local.surrogate.throughput
+          encrypted             = local.surrogate.encrypted
+          kms_key_id            = local.surrogate.kms_key_id
+          delete_on_termination = true
+        }
+      ]
+    )
+    iterator = mapping
+
+    content {
+      device_name           = mapping.value["device_name"]
+      volume_size           = mapping.value["volume_size"]
+      volume_type           = mapping.value["volume_type"]
+      iops                  = mapping.value["iops"]
+      throughput            = mapping.value["throughput"]
+      encrypted             = mapping.value["encrypted"]
+      kms_key_id            = mapping.value["kms_key_id"]
+      delete_on_termination = mapping.value["delete_on_termination"]
+    }
+  }
+
+  # The registered AMI's root device maps to the surrogate volume's snapshot.
+  ami_root_device {
+    source_device_name    = local.surrogate.device_name
+    device_name           = local.surrogate.ami_root_device_name
+    volume_size           = local.surrogate.volume_size
+    volume_type           = local.surrogate.volume_type
+    delete_on_termination = true
+  }
+
+}

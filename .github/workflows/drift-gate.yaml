@@ -38,6 +38,6 @@ jobs:
         uses: NWarila/drift-gate@dd091e7d730b2711e09bf86c8d66b7e9b873dd53 # main @ 2026-05-27
         with:
           source-repo: NWarila/packer-framework-template
-          source-ref: 052fa453c08e7e5e141f888dfaf46c92ee980eaf # main @ 2026-05-30
+          source-ref: d4d2d89d25d56e0ae9ec59b4f01dfd2429f32871 # main @ 2026-08-07
           manifest: baseline-manifest.json
           check-name: template-baseline / verify

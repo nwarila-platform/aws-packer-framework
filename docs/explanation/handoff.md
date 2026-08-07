@@ -50,12 +50,12 @@ Scaffolded the AWS Packer framework from proxmox-packer-framework:
 ## Known Remaining Gaps
 
 - `boot_mode` and `tpm_support` are not part of the contract: the `amazon-ebs`
-  builder (CreateImage flow) inherits both from the source AMI. If forcing UEFI
-  or NitroTPM becomes a requirement, that is an `ebssurrogate` migration.
-- STIG partition-layout controls (separate /home, /tmp, /var, /var/log,
-  /var/log/audit) cannot be met on the stock single-root-volume RHEL AMI;
-  consumers must track them as documented exceptions or build a
-  custom-partitioned source AMI.
+  builder (CreateImage flow) inherits both from the source AMI. The
+  `amazon-ebssurrogate` source now exists and uses RegisterImage, so wiring
+  boot-mode/TPM overrides there is possible future work.
+- STIG partition-layout controls are satisfiable via the `amazon-ebssurrogate`
+  source (`var.surrogate` + consumer-owned layout play); the plain `amazon-ebs`
+  path still inherits the source AMI's single-root-volume layout.
 - STIG/CIS hardening roles are not yet in ansible-framework; the consumer repo
   currently runs the os_bootstrap dispatcher only.
 - `opa_version` remains accepted but unused for upstream contract

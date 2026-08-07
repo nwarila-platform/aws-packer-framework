@@ -30,6 +30,28 @@ This design supports any first-boot mechanism (cloud-init, EC2Launch v2, Ignitio
 without framework changes. User data is readable from the instance metadata service for the
 life of the build instance; the contract never routes secrets through it.
 
+## Surrogate Path (Custom Partition Layouts)
+
+The `amazon-ebs` source registers the AMI from the build instance's root volume, so the image
+inherits the source AMI's partition layout. For layouts the source AMI cannot provide — the
+motivating case is STIG-mandated separate `/home`, `/tmp`, `/var`, `/var/log`, and
+`/var/log/audit` filesystems — the framework ships a second source, `amazon-ebssurrogate`,
+sharing the full variable contract plus one addition (`var.surrogate`, the blank volume's
+device name, size, and encryption).
+
+The flow mirrors the Proxmox framework's Kickstart ownership split: the framework owns the
+builder mechanics (boot from `source_ami`, attach the blank surrogate volume, register the AMI
+from it via RegisterImage); the consumer owns the layout content — an Ansible play that runs
+after configuration, partitions the surrogate volume, copies the configured root filesystem
+into it, and installs the bootloader. Because Ansible runs against the booted build instance
+*before* the copy, its changes land in the registered image.
+
+Both sources always validate; a build selects one explicitly:
+
+```bash
+packer build -only=amazon-ebssurrogate.packer_image .
+```
+
 ## Framework-Consumer Boundary
 
 **Framework owns:**

@@ -165,6 +165,21 @@ variable "source_ami" {
   }
 }
 
+variable "surrogate" {
+  description = "Surrogate-volume configuration for the amazon-ebssurrogate source, used when the image needs a partition layout the source AMI cannot provide (e.g. STIG-mandated separate filesystems). The blank volume is attached to the build instance at device_name; consumer provisioning partitions it and copies the configured OS in; the AMI is registered from that volume as ami_root_device_name. When null, the ebssurrogate source still validates with defaults but is only built when explicitly selected via -only."
+  default     = null
+  type = object({
+    device_name          = string
+    ami_root_device_name = string
+    volume_size          = number
+    volume_type          = string
+    iops                 = number
+    throughput           = number
+    encrypted            = bool
+    kms_key_id           = string
+  })
+}
+
 variable "launch_block_device_mappings" {
   description = "List of block device mappings for the build instance. At least one mapping is required; the first mapping is treated as the root volume for the template variable contract."
   type = list(

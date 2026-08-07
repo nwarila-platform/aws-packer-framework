@@ -4,7 +4,13 @@
 
 build {
 
-  sources = ["source.amazon-ebs.packer_image"]
+  # Both sources share the full variable contract. amazon-ebs is the default path; the
+  # amazon-ebssurrogate variant is built only when explicitly selected with
+  # -only=amazon-ebssurrogate.packer_image (see source.pkr.hcl).
+  sources = [
+    "source.amazon-ebs.packer_image",
+    "source.amazon-ebssurrogate.packer_image",
+  ]
 
   # Ansible Provisioner (SSH communicator - Linux)
   # SSH authentication is handled by the Packer-generated temporary EC2 keypair; no SSH
@@ -14,7 +20,7 @@ build {
   # executable on PATH. The repository validation helpers inject a temporary stub so
   # framework syntax checks can run without bundling consumer Ansible content.
   provisioner "ansible" {
-    except                 = (local.packer_image.communicator == "ssh" && var.ansible_config.playbook_path != null) ? [] : ["amazon-ebs.packer_image"]
+    except                 = (local.packer_image.communicator == "ssh" && var.ansible_config.playbook_path != null) ? [] : ["amazon-ebs.packer_image", "amazon-ebssurrogate.packer_image"]
     user                   = var.deploy_user_name
     galaxy_file            = var.ansible_config.requirements_path
     galaxy_force_with_deps = var.ansible_config.requirements_path != null ? true : null
@@ -36,8 +42,9 @@ build {
   # ansible-playbook executable on PATH. The repository validation helpers
   # inject a temporary stub so framework syntax checks can run without bundling
   # consumer Ansible content.
+  # The surrogate source is SSH-only, so it is always excluded from the WinRM provisioner.
   provisioner "ansible" {
-    except                 = (local.packer_image.communicator == "winrm" && var.ansible_config.playbook_path != null) ? [] : ["amazon-ebs.packer_image"]
+    except                 = (local.packer_image.communicator == "winrm" && var.ansible_config.playbook_path != null) ? ["amazon-ebssurrogate.packer_image"] : ["amazon-ebs.packer_image", "amazon-ebssurrogate.packer_image"]
     user                   = var.deploy_user_name
     use_proxy              = false
     galaxy_file            = var.ansible_config.requirements_path
