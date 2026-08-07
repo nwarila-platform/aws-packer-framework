@@ -119,6 +119,22 @@ locals {
 
   #region ------ [ Hardware Normalization ] -------------------------------------------------- #
 
+  # Normalized even when var.surrogate is null so the ebssurrogate source always validates;
+  # it is only built when explicitly selected (packer build -only=amazon-ebssurrogate.*).
+  surrogate = {
+    device_name          = coalesce(var.surrogate == null ? null : var.surrogate.device_name, "/dev/xvdf")
+    ami_root_device_name = coalesce(var.surrogate == null ? null : var.surrogate.ami_root_device_name, "/dev/sda1")
+    volume_size = coalesce(
+      var.surrogate == null ? null : var.surrogate.volume_size,
+      var.launch_block_device_mappings[0].volume_size
+    )
+    volume_type = coalesce(var.surrogate == null ? null : var.surrogate.volume_type, "gp3")
+    iops        = var.surrogate == null ? null : var.surrogate.iops
+    throughput  = var.surrogate == null ? null : var.surrogate.throughput
+    encrypted   = coalesce(var.surrogate == null ? null : var.surrogate.encrypted, true)
+    kms_key_id  = var.surrogate == null ? null : var.surrogate.kms_key_id
+  }
+
   source_ami = {
     ami_id      = var.source_ami.ami_id
     owners      = var.source_ami.owners
