@@ -16,11 +16,15 @@ build {
   # SSH authentication is handled by the Packer-generated temporary EC2 keypair; no SSH
   # password is wired through Ansible. Privilege escalation relies on the source AMI's
   # passwordless sudo grant for the cloud-init default user, so no become_pass is provided.
+  # use_proxy is disabled so Ansible connects straight to the build instance with the
+  # Packer key and the real sshd SFTP subsystem — the proxy adapter's hard-coded
+  # /usr/lib/sftp-server path breaks module transfer on RHEL-family targets.
   # Consumer builds are expected to provide a real playbook path and an ansible-playbook
   # executable on PATH. The repository validation helpers inject a temporary stub so
   # framework syntax checks can run without bundling consumer Ansible content.
   provisioner "ansible" {
     except                 = (local.packer_image.communicator == "ssh" && var.ansible_config.playbook_path != null) ? [] : ["amazon-ebs.packer_image", "amazon-ebssurrogate.packer_image"]
+    use_proxy              = false
     user                   = var.deploy_user_name
     galaxy_file            = var.ansible_config.requirements_path
     galaxy_force_with_deps = var.ansible_config.requirements_path != null ? true : null
