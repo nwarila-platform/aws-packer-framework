@@ -1,0 +1,305 @@
+---
+name: Reusable AWS Packer Framework Build
+
+# Framework-owned reusable workflow for AWS/Packer consumers. It preserves
+# the upstream packer-framework-template input contract while replacing the
+# credential-free file builder behavior with this repo's amazon-ebs build path.
+
+on:
+  workflow_call:
+    inputs:
+      framework_ref:
+        description: 40-character commit SHA of this framework to check out.
+        required: true
+        type: string
+      input_repo:
+        description: owner/repo that supplies framework input files.
+        required: false
+        type: string
+        default: ""
+      input_ref:
+        description: Git ref of the input repository to check out.
+        required: false
+        type: string
+        default: ""
+      allow_floating_input_ref:
+        description: Emergency escape hatch for callers that need a floating input_ref.
+        required: false
+        type: boolean
+        default: false
+      overlay_paths:
+        description: Newline-separated input-to-framework overlay entries.
+        required: false
+        type: string
+        default: ""
+      packer_version:
+        description: Exact Packer CLI version to install.
+        required: false
+        type: string
+        default: "1.15.0"
+      opa_version:
+        description: Accepted for upstream contract compatibility.
+        required: false
+        type: string
+        default: "1.10.0"
+      var_file:
+        description: Newline-separated paths within the input checkout to Packer var files.
+        required: false
+        type: string
+        default: ""
+      build:
+        description: Run packer build after validate.
+        required: false
+        type: boolean
+        default: false
+      upload_artifacts:
+        description: Upload generated packer artifacts and manifests.
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      aws_role_to_assume:
+        description: IAM role ARN assumed via GitHub OIDC for build=true.
+        required: false
+      aws_region:
+        description: AWS region for build=true.
+        required: false
+      deploy_user_name:
+        description: Optional deploy username for build=true. Defaults to ec2-user.
+        required: false
+    outputs:
+      build_status:
+        description: '"validated" or "built"'
+        value: ${{ jobs.framework_build.outputs.build_status }}
+
+permissions:
+  contents: read
+
+jobs:
+  framework_build:
+    name: aws-packer-framework / build
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.build && 120 || 20 }}
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      build_status: ${{ steps.status.outputs.build_status }}
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Resolve input-ref / input-repo defaults
+        id: refs
+        env:
+          OVERRIDE_REPO: ${{ inputs.input_repo }}
+          OVERRIDE_REF: ${{ inputs.input_ref }}
+          FALLBACK_REPO: ${{ github.repository }}
+          FALLBACK_REF: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          repo="${OVERRIDE_REPO:-$FALLBACK_REPO}"
+          ref="${OVERRIDE_REF:-$FALLBACK_REF}"
+          echo "input_repo=${repo}" >> "${GITHUB_OUTPUT}"
+          echo "input_ref=${ref}" >> "${GITHUB_OUTPUT}"
+
+      - name: Validate refs before checkout
+        env:
+          FRAMEWORK_REF: ${{ inputs.framework_ref }}
+          INPUT_REF: ${{ steps.refs.outputs.input_ref }}
+          ALLOW_FLOATING_INPUT_REF: ${{ inputs.allow_floating_input_ref }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${FRAMEWORK_REF}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::framework_ref must be a 40-character SHA, got '${FRAMEWORK_REF}'" >&2
+            exit 1
+          fi
+          case "${ALLOW_FLOATING_INPUT_REF}" in
+            true|false) ;;
+            *)
+              echo "::error::allow_floating_input_ref must be true or false, got '${ALLOW_FLOATING_INPUT_REF}'" >&2
+              exit 1
+              ;;
+          esac
+          if [[ "${ALLOW_FLOATING_INPUT_REF}" != "true" && ! "${INPUT_REF}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::input_ref must be a 40-character SHA, got '${INPUT_REF}'" >&2
+            exit 1
+          fi
+          if [[ "${ALLOW_FLOATING_INPUT_REF}" == "true" ]]; then
+            echo "::warning::allow_floating_input_ref=true; input checkout is not SHA-pinned."
+          fi
+
+      - name: Check out framework at framework_ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: nwarila-platform/aws-packer-framework
+          ref: ${{ inputs.framework_ref }}
+          path: framework
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify ref helper scripts
+        env:
+          FRAMEWORK_REF: ${{ inputs.framework_ref }}
+          INPUT_REF: ${{ steps.refs.outputs.input_ref }}
+          ALLOW_FLOATING_INPUT_REF: ${{ inputs.allow_floating_input_ref }}
+        run: |
+          set -euo pipefail
+          bash framework/tools/ci/validate_framework_ref.sh "${FRAMEWORK_REF}"
+          bash framework/tools/ci/validate_input_ref.sh "${INPUT_REF}" "${ALLOW_FLOATING_INPUT_REF}"
+
+      - name: Check out input repo at input_ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: ${{ steps.refs.outputs.input_repo }}
+          ref: ${{ steps.refs.outputs.input_ref }}
+          path: input
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Apply overlay
+        if: ${{ inputs.overlay_paths != '' }}
+        env:
+          OVERLAY_PATHS: ${{ inputs.overlay_paths }}
+        run: |
+          set -euo pipefail
+          bash framework/tools/ci/apply_overlay.sh input framework "${OVERLAY_PATHS}"
+
+      - name: Set up Packer
+        uses: hashicorp/setup-packer@1aa358be5cf73883762b302a3a03abd66e75b232 # v3.1.0
+        with:
+          version: ${{ inputs.packer_version }}
+
+      - name: Resolve var-file argument
+        id: varfile
+        env:
+          VAR_FILE: ${{ inputs.var_file }}
+        run: |
+          set -euo pipefail
+          {
+            echo "args<<PACKER_VAR_ARGS"
+            bash framework/tools/ci/packer_var_file_args.sh "${VAR_FILE}"
+            echo "PACKER_VAR_ARGS"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Packer init
+        working-directory: framework/packer
+        run: packer init .
+
+      - name: Install validate-only Ansible stub
+        if: ${{ ! inputs.build }}
+        run: |
+          set -euo pipefail
+          stub_dir="${RUNNER_TEMP}/ansible-stub"
+          rm -rf "${stub_dir}"
+          mkdir -p "${stub_dir}"
+          cat > "${stub_dir}/ansible-playbook" <<'SH'
+          #!/usr/bin/env sh
+          if [ "${1:-}" = "--version" ]; then
+            echo "ansible-playbook [core 2.18.0]"
+            exit 0
+          fi
+          exit 0
+          SH
+          chmod 700 "${stub_dir}/ansible-playbook"
+          echo "${stub_dir}" >> "${GITHUB_PATH}"
+
+      - name: Packer validate
+        if: ${{ ! inputs.build }}
+        working-directory: framework/packer
+        env:
+          VAR_FILE_ARGS: ${{ steps.varfile.outputs.args }}
+          PKR_VAR_aws_region: us-east-1
+          PKR_VAR_deploy_user_name: ec2-user
+        run: |
+          set -euo pipefail
+          args=(validate)
+          if [ -n "${VAR_FILE_ARGS}" ]; then
+            while IFS= read -r arg; do
+              args+=("${arg}")
+            done <<< "${VAR_FILE_ARGS}"
+          fi
+          args+=(.)
+          packer "${args[@]}"
+
+      - name: Configure AWS credentials
+        if: ${{ inputs.build }}
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ secrets.aws_role_to_assume }}
+          aws-region: ${{ secrets.aws_region }}
+          role-session-name: aws-packer-framework-build
+
+      - name: Packer validate and build
+        if: ${{ inputs.build }}
+        working-directory: framework/packer
+        env:
+          VAR_FILE_ARGS: ${{ steps.varfile.outputs.args }}
+          PKR_VAR_aws_region: ${{ secrets.aws_region }}
+          PKR_VAR_deploy_user_name: ${{ secrets.deploy_user_name || 'ec2-user' }}
+        run: |
+          set -euo pipefail
+          umask 077
+
+          required_variables=(
+            PKR_VAR_aws_region
+            PKR_VAR_deploy_user_name
+          )
+          for variable_name in "${required_variables[@]}"; do
+            variable_value="${!variable_name:-}"
+            if [[ -z "${variable_value//[[:space:]]/}" ]]; then
+              echo "::error::Required build variable is not set: ${variable_name}" >&2
+              exit 1
+            fi
+          done
+
+          required_commands=(ansible-playbook aws curl python3 sha256sum)
+          for command_name in "${required_commands[@]}"; do
+            if ! command -v "${command_name}" >/dev/null 2>&1; then
+              echo "::error::Required executable not found: ${command_name}" >&2
+              exit 1
+            fi
+          done
+
+          if ! aws sts get-caller-identity >/dev/null 2>&1; then
+            echo "::error::AWS credentials are not available. Pass aws_role_to_assume and aws_region secrets for build=true." >&2
+            exit 1
+          fi
+
+          args=(validate)
+          build_args=(build -timestamp-ui -color=false)
+          if [ -n "${VAR_FILE_ARGS}" ]; then
+            while IFS= read -r arg; do
+              args+=("${arg}")
+              build_args+=("${arg}")
+            done <<< "${VAR_FILE_ARGS}"
+          fi
+          args+=(.)
+          build_args+=(.)
+
+          packer "${args[@]}"
+          packer "${build_args[@]}"
+
+      - name: Record build status
+        id: status
+        env:
+          BUILD_ENABLED: ${{ inputs.build }}
+        run: |
+          set -euo pipefail
+          if [ "${BUILD_ENABLED}" = "true" ]; then
+            echo "build_status=built" >> "${GITHUB_OUTPUT}"
+          else
+            echo "build_status=validated" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Upload generated Packer evidence
+        if: ${{ always() && inputs.upload_artifacts }}
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: packer-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            framework/packer/artifacts/**
+            framework/packer/manifests/**
+          if-no-files-found: warn
+          retention-days: 14

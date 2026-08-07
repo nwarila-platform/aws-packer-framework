@@ -1,0 +1,43 @@
+---
+name: Drift Gate
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  checks: write
+
+concurrency:
+  group: drift-gate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  org-baseline:
+    name: org-baseline / verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Drift gate (execution org baseline)
+        uses: NWarila/drift-gate@dd091e7d730b2711e09bf86c8d66b7e9b873dd53 # main @ 2026-05-27
+        with:
+          source-repo: nwarila-platform/.github
+          source-ref: a121800d490f3994c8b1fb95de1afc956007df6a # main @ 2026-06-02
+          manifest: baseline-manifest.json
+          check-name: org-baseline / verify
+
+  template-baseline:
+    name: template-baseline / verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Drift gate (packer framework template baseline)
+        # renovate: depName=NWarila/packer-framework-template packageName=NWarila/packer-framework-template currentValue=main
+        uses: NWarila/drift-gate@dd091e7d730b2711e09bf86c8d66b7e9b873dd53 # main @ 2026-05-27
+        with:
+          source-repo: NWarila/packer-framework-template
+          source-ref: 052fa453c08e7e5e141f888dfaf46c92ee980eaf # main @ 2026-05-30
+          manifest: baseline-manifest.json
+          check-name: template-baseline / verify
