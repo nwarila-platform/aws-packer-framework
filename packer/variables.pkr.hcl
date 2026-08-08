@@ -181,8 +181,8 @@ variable "surrogate" {
   })
 
   validation {
-    condition     = try(var.surrogate.boot_mode, null) == null || contains(["legacy-bios", "uefi", "uefi-preferred"], try(var.surrogate.boot_mode, ""))
-    error_message = "The surrogate.boot_mode value must be \"legacy-bios\", \"uefi\", or \"uefi-preferred\". The amazon-ebssurrogate source registers the AMI (RegisterImage), so the boot mode must match the partition layout consumer provisioning builds onto the surrogate volume — a BIOS/GPT layout with an embedded GRUB and no EFI system partition must register as legacy-bios or the instance will not boot."
+    condition     = try(var.surrogate.boot_mode, null) == null || try(var.surrogate.boot_mode, "") == "uefi"
+    error_message = "The surrogate.boot_mode value must be \"uefi\". Legacy BIOS and uefi-preferred (which permits a BIOS fallback) are hard-blocked: this framework registers UEFI-only images, matching the UEFI posture of the org's other Packer frameworks. Consumer provisioning must build a GPT layout with an EFI system partition and a UEFI GRUB, and the registered AMI boots UEFI-only."
   }
 }
 
