@@ -180,9 +180,9 @@ source "amazon-ebssurrogate" "packer_image" {
   user_data            = local.user_data
 
   # AMI Settings (RegisterImage flow)
-  # boot_mode must match the partition layout consumer provisioning builds onto the surrogate:
-  # a BIOS/GPT layout with embedded GRUB and no EFI system partition registers as legacy-bios,
-  # or the instance silently fails to boot (nitro defaults to uefi-preferred when unset).
+  # boot_mode is UEFI-only (hard-blocked to "uefi" by the variable contract): consumer
+  # provisioning must build a GPT layout with an EFI system partition and a UEFI GRUB, and the
+  # registered AMI boots UEFI-only — matching the UEFI posture of the org's other frameworks.
   ami_virtualization_type = "hvm"
   boot_mode               = local.surrogate.boot_mode
   ena_support             = local.packer_image.ena_support

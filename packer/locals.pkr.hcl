@@ -124,7 +124,7 @@ locals {
   surrogate = {
     device_name          = coalesce(var.surrogate == null ? null : var.surrogate.device_name, "/dev/xvdf")
     ami_root_device_name = coalesce(var.surrogate == null ? null : var.surrogate.ami_root_device_name, "/dev/sda1")
-    boot_mode            = coalesce(var.surrogate == null ? null : var.surrogate.boot_mode, "legacy-bios")
+    boot_mode            = coalesce(var.surrogate == null ? null : var.surrogate.boot_mode, "uefi")
     volume_size = coalesce(
       var.surrogate == null ? null : var.surrogate.volume_size,
       var.launch_block_device_mappings[0].volume_size
