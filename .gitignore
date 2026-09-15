@@ -51,6 +51,7 @@
 !.github/workflows/reusable-release-evidence.yaml
 !.github/workflows/security.yaml
 !.github/workflows/repo-hygiene.yaml
+!.github/workflows/template-drift.yaml
 
 # --- .vscode ---
 !.vscode/
